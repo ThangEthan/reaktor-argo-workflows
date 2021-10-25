@@ -1,0 +1,81 @@
+apiVersion: argoproj.io/v1alpha1
+kind: Workflow
+metadata:
+  name: reaktor-web-workflows
+  namespace: argo
+  labels:
+    workflows.argoproj.io/archive-strategy: "false"
+spec:
+  entrypoint: full
+  # serviceAccountName: workflow
+  volumes:
+  - name: kaniko-secret
+    secret:
+      secretName: regcred
+      items:
+        - key: .dockerconfigjson
+          path: config.json
+  - name: github-access
+    secret:
+      secretName: github-access
+      items:
+        - key: token
+          path: token
+        - key: email
+          path: email
+        - key: user
+          path: user
+  templates:
+  - name: full
+    dag:
+      tasks:
+      - name: build-container-image
+        templateRef:
+          name: kaniko-build-from-git
+          template: build
+          clusterScope: true
+        arguments:
+          parameters:
+          - name: app_repo
+            value: git://github.com/ThangEthan/reaktor-web
+          - name: container_image
+            value: thangvu201098/reaktor-web
+          - name: container_tag
+            value: 0.0.5
+      - name: deploy-staging
+        templateRef:
+          name: change-image-tag
+          template: change
+          clusterScope: true
+        arguments:
+          parameters:
+          - name: repo_owner
+            value: ThangEthan
+          - name: repo_name
+            value: reaktor-web-conf
+          - name: image_owner
+            value: thangvu201098
+          - name: image_name
+            value: reaktor-web
+          - name: tag
+            value: 0.0.5
+        dependencies:
+        - build-container-image
+        - tests
+      - name: tests
+        template: echo
+        arguments:
+          parameters:
+          - name: message
+            value: Running integration tests (before, during, and after the deployment is finished)...
+        dependencies:
+        - build-container-image
+  - name: echo
+    inputs:
+      parameters:
+      - name: message
+    container:
+      image: alpine
+      command: [echo]
+      args:
+      - "{{inputs.parameters.message}}"
